@@ -18,14 +18,14 @@
 
 package org.apache.zookeeper.server;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.Flushable;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.Random;
 import java.util.concurrent.LinkedBlockingQueue;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * This RequestProcessor logs requests to disk. It batches the requests to do
@@ -105,11 +105,14 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
             int randRoll = r.nextInt(snapCount/2);
             while (true) {
                 Request si = null;
+                // 如果没有需要flush（调用下一个processor的情况），阻塞等待新的sync请求
                 if (toFlush.isEmpty()) {
                     si = queuedRequests.take();
                 } else {
+                    // 如果有需要flush，先非阻塞调用一次获取sync请求
                     si = queuedRequests.poll();
                     if (si == null) {
+                        // 如果没有sync请求，执行flush，调用下一个processor
                         flush(toFlush);
                         continue;
                     }

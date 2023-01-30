@@ -18,6 +18,9 @@
 
 package org.apache.zookeeper.server;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.InetAddress;
@@ -28,19 +31,9 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Queue;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * NIOServerCnxnFactory implements a multi-threaded ServerCnxnFactory using
@@ -646,29 +639,26 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
         configureSaslLogin();
 
         maxClientCnxns = maxcc;
-        sessionlessCnxnTimeout = Integer.getInteger(
-            ZOOKEEPER_NIO_SESSIONLESS_CNXN_TIMEOUT, 10000);
+        sessionlessCnxnTimeout = Integer.getInteger(ZOOKEEPER_NIO_SESSIONLESS_CNXN_TIMEOUT, 10000); // 10s
         // We also use the sessionlessCnxnTimeout as expiring interval for
         // cnxnExpiryQueue. These don't need to be the same, but the expiring
         // interval passed into the ExpiryQueue() constructor below should be
         // less than or equal to the timeout.
-        cnxnExpiryQueue =
-            new ExpiryQueue<NIOServerCnxn>(sessionlessCnxnTimeout);
+        cnxnExpiryQueue = new ExpiryQueue<NIOServerCnxn>(sessionlessCnxnTimeout);
+        // 空闲连接回收线程
         expirerThread = new ConnectionExpirerThread();
 
         int numCores = Runtime.getRuntime().availableProcessors();
+        // selector线程
         // 32 cores sweet spot seems to be 4 selector threads
-        numSelectorThreads = Integer.getInteger(
-            ZOOKEEPER_NIO_NUM_SELECTOR_THREADS,
-            Math.max((int) Math.sqrt((float) numCores/2), 1));
+        numSelectorThreads = Integer.getInteger(ZOOKEEPER_NIO_NUM_SELECTOR_THREADS, Math.max((int) Math.sqrt((float) numCores/2), 1));
         if (numSelectorThreads < 1) {
             throw new IOException("numSelectorThreads must be at least 1");
         }
 
-        numWorkerThreads = Integer.getInteger(
-            ZOOKEEPER_NIO_NUM_WORKER_THREADS, 2 * numCores);
-        workerShutdownTimeoutMS = Long.getLong(
-            ZOOKEEPER_NIO_SHUTDOWN_TIMEOUT, 5000);
+        // io worker线程
+        numWorkerThreads = Integer.getInteger(ZOOKEEPER_NIO_NUM_WORKER_THREADS, 2 * numCores);
+        workerShutdownTimeoutMS = Long.getLong(ZOOKEEPER_NIO_SHUTDOWN_TIMEOUT, 5000);
 
         LOG.info("Configuring NIO connection handler with "
                  + (sessionlessCnxnTimeout/1000) + "s sessionless connection"
@@ -686,6 +676,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
         LOG.info("binding to port " + addr);
         ss.socket().bind(addr);
         ss.configureBlocking(false);
+        // accept线程
         acceptThread = new AcceptThread(ss, addr, selectorThreads);
     }
 

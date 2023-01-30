@@ -18,6 +18,13 @@
 
 package org.apache.zookeeper.server.quorum;
 
+import org.apache.zookeeper.jmx.MBeanRegistry;
+import org.apache.zookeeper.server.quorum.QuorumPeer.LearnerType;
+import org.apache.zookeeper.server.quorum.QuorumPeer.QuorumServer;
+import org.apache.zookeeper.server.quorum.QuorumPeer.ServerState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -27,17 +34,8 @@ import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Random;
 import java.util.Map.Entry;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.apache.zookeeper.jmx.MBeanRegistry;
-import org.apache.zookeeper.server.quorum.Vote;
-import org.apache.zookeeper.server.quorum.QuorumPeer.LearnerType;
-import org.apache.zookeeper.server.quorum.QuorumPeer.QuorumServer;
-import org.apache.zookeeper.server.quorum.QuorumPeer.ServerState;
+import java.util.Random;
 
 /**
  * @deprecated This class has been deprecated as of release 3.4.0. 
@@ -84,9 +82,9 @@ public class LeaderElection implements Election  {
                 Long val = maxZxids.get(v.getId());
                 if (val == null || val < v.getZxid()) {
                     maxZxids.put(v.getId(), v.getZxid());
-            }
-                    }
                 }
+            }
+        }
 
         // Make all zxids for a given vote id equal to the largest zxid seen for
         // that id

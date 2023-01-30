@@ -18,31 +18,8 @@
 
 package org.apache.zookeeper.server.quorum;
 
-import java.io.BufferedInputStream;
-import java.io.IOException;
-import java.net.BindException;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketAddress;
-import java.net.SocketException;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicLong;
-
-import javax.security.sasl.SaslException;
-
 import org.apache.zookeeper.ZooDefs.OpCode;
 import org.apache.zookeeper.common.Time;
-import org.apache.zookeeper.common.X509Exception;
 import org.apache.zookeeper.server.FinalRequestProcessor;
 import org.apache.zookeeper.server.Request;
 import org.apache.zookeeper.server.RequestProcessor;
@@ -53,6 +30,17 @@ import org.apache.zookeeper.server.util.SerializeUtils;
 import org.apache.zookeeper.server.util.ZxidUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.security.sasl.SaslException;
+import java.io.BufferedInputStream;
+import java.io.IOException;
+import java.net.*;
+import java.nio.ByteBuffer;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 /**
@@ -776,7 +764,7 @@ public class Leader {
        // in order to be committed, a proposal must be accepted by a quorum.
        //
        // getting a quorum from all necessary configurations.
-        if (!p.hasAllQuorums()) {
+        if (!p.hasAllQuorums()) { // proposal如果获取quorum节点ack，在继续执行
            return false;                 
         }
         
@@ -821,9 +809,12 @@ public class Leader {
             informAndActivate(p, designatedLeader);
             //turnOffFollowers();
         } else {
+            // 发送commit给所有follower
             commit(zxid);
+            // 发送给所有observer节点
             inform(p);
         }
+        // leader自己执行commit
         zk.commitProcessor.commit(p.request);
         if(pendingSyncs.containsKey(zxid)){
             for(LearnerSyncRequest r: pendingSyncs.remove(zxid)) {
@@ -1116,7 +1107,7 @@ public class Leader {
 
             lastProposed = p.packet.getZxid();
             outstandingProposals.put(lastProposed, p);
-            sendPacket(pp);
+            sendPacket(pp); // 将Proposal发送给所有follower
         }
         return p;
     }
