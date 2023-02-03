@@ -18,15 +18,15 @@
 
 package org.apache.zookeeper.server.quorum.flexible;
 
-import java.util.HashMap;
-import java.util.Set;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Map.Entry;
-
 import org.apache.zookeeper.server.quorum.QuorumPeer.LearnerType;
 import org.apache.zookeeper.server.quorum.QuorumPeer.QuorumServer;
 import org.apache.zookeeper.server.quorum.QuorumPeerConfig.ConfigException;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Properties;
+import java.util.Set;
 
 /**
  * This class implements a validator for majority quorums. The implementation is
@@ -79,6 +79,7 @@ public class QuorumMaj implements QuorumVerifier {
     }
 
     public QuorumMaj(Properties props) throws ConfigException {
+        // 解析server.1=127.0.0.1:2222:2001
         for (Entry<Object, Object> entry : props.entrySet()) {
             String key = entry.getKey().toString();
             String value = entry.getValue().toString();

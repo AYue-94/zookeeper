@@ -18,9 +18,6 @@
 
 package org.apache.zookeeper.server;
 
-import java.nio.ByteBuffer;
-import java.util.List;
-
 import org.apache.jute.Record;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs.OpCode;
@@ -28,6 +25,9 @@ import org.apache.zookeeper.common.Time;
 import org.apache.zookeeper.data.Id;
 import org.apache.zookeeper.server.quorum.flexible.QuorumVerifier;
 import org.apache.zookeeper.txn.TxnHeader;
+
+import java.nio.ByteBuffer;
+import java.util.List;
 
 /**
  * This is the structure that represents a request moving through a chain of
@@ -58,22 +58,30 @@ public class Request {
         this.authInfo = null;
     }
 
+    // session id
     public final long sessionId;
 
+    // 客户端的请求id
     public final int cxid;
 
+    // 请求类型 比如ls create
     public final int type;
 
+    // 请求内容
     public final ByteBuffer request;
 
+    // 客户端连接
     public final ServerCnxn cnxn;
 
+    // 事务头
     private TxnHeader hdr;
 
+    // 事务数据
     private Record txn;
 
     public long zxid = -1;
 
+    // 权限
     public final List<Id> authInfo;
 
     public final long createTime = Time.currentElapsedTime();

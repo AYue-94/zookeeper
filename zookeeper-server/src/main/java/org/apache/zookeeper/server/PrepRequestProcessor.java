@@ -357,6 +357,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
                                 Record record, boolean deserialize)
         throws KeeperException, IOException, RequestProcessorException
     {
+        // 设置事务头
         request.setHdr(new TxnHeader(request.sessionId, request.cxid, zxid,
                 Time.currentWallTime(), type));
 
@@ -365,6 +366,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
             case OpCode.create2:
             case OpCode.createTTL:
             case OpCode.createContainer: {
+                // 设置事务数据
                 pRequest2TxnCreate(type, request, record, deserialize);
                 break;
             }
@@ -655,10 +657,15 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
         String parentPath = validatePathForCreate(path, request.sessionId);
 
         List<ACL> listACL = fixupACL(path, request.authInfo, acl);
+        // 获取父节点的ChangeRecord
         ChangeRecord parentRecord = getRecordForPath(parentPath);
 
         checkACL(zks, parentRecord.acl, ZooDefs.Perms.CREATE, request.authInfo);
         int parentCVersion = parentRecord.stat.getCversion();
+        // 顺序节点
+        // 这里一定不会出现重复序号
+        // getRecordForPath同时考虑了已经收到的ChangeRecord，如果没有则使用db中的数据返回一个ChangeRecord
+        // 当前方法也是单线程处理，ChangeRecord是顺序存储到zkserver的
         if (createMode.isSequential()) {
             path = path + String.format(Locale.ENGLISH, "%010d", parentCVersion);
         }
@@ -680,6 +687,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
         } else if (type == OpCode.createTTL) {
             request.setTxn(new CreateTTLTxn(path, data, listACL, newCversion, ttl));
         } else {
+            // 设置txn
             request.setTxn(new CreateTxn(path, data, listACL, createMode.isEphemeral(),
                     newCversion));
         }
@@ -687,10 +695,12 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
         if (createMode.isEphemeral()) {
             s.setEphemeralOwner(request.sessionId);
         }
+        // 父节点ChangeRecord加入outstandingChanges
         parentRecord = parentRecord.duplicate(request.getHdr().getZxid());
         parentRecord.childCount++;
         parentRecord.stat.setCversion(newCversion);
         addChangeRecord(parentRecord);
+        // 新节点ChangeRecord加入outstandingChanges
         addChangeRecord(new ChangeRecord(request.getHdr().getZxid(), path, s, 0, listACL));
     }
 
@@ -740,7 +750,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
             case OpCode.create:
             case OpCode.create2:
                 CreateRequest create2Request = new CreateRequest();
-                pRequest2Txn(request.type, zks.getNextZxid(), request, create2Request, true);
+                pRequest2Txn(request.type, zks.getNextZxid()/* 生成新的zxid */, request, create2Request, true);
                 break;
             case OpCode.createTTL:
                 CreateTTLRequest createTtlRequest = new CreateTTLRequest();
@@ -901,6 +911,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
             }
         }
         request.zxid = zks.getZxid();
+        // 交给ProposalRequestProcessor
         nextProcessor.processRequest(request);
     }
 

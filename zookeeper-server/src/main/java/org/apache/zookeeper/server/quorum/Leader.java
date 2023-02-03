@@ -379,6 +379,7 @@ public class Leader {
                     Socket s = null;
                     boolean error = false;
                     try {
+                        // 接收follower连接
                         s = ss.accept();
 
                         // start with the initLimit, once the ack is processed
@@ -388,6 +389,7 @@ public class Leader {
 
                         BufferedInputStream is = new BufferedInputStream(
                                 s.getInputStream());
+                        // 每个follower连接创建LearnerHandler处理请求
                         LearnerHandler fh = new LearnerHandler(s, is, Leader.this);
                         fh.start();
                     } catch (SocketException e) {
@@ -764,7 +766,9 @@ public class Leader {
        // in order to be committed, a proposal must be accepted by a quorum.
        //
        // getting a quorum from all necessary configurations.
-        if (!p.hasAllQuorums()) { // proposal如果获取quorum节点ack，在继续执行
+        // 是否满足quorum条件（QuorumMaj过半）
+        // 只有满足了才继续执行commit
+        if (!p.hasAllQuorums()) {
            return false;                 
         }
         
@@ -775,9 +779,11 @@ public class Leader {
             LOG.warn("First is "
                     + (lastCommitted+1));
         }     
-        
+
+        // zxid从发送proposal集合中移除
         outstandingProposals.remove(zxid);
-        
+
+        // 提案加入toApply队列
         if (p.request != null) {
              toBeApplied.add(p);
         }
@@ -809,15 +815,16 @@ public class Leader {
             informAndActivate(p, designatedLeader);
             //turnOffFollowers();
         } else {
-            // 发送commit给所有follower
+            // 发送commit给所有follower Leader.COMMIT
             commit(zxid);
-            // 发送给所有observer节点
+            // 发送给所有observer节点 Leader.INFORM
             inform(p);
         }
         // leader自己执行commit
         zk.commitProcessor.commit(p.request);
         if(pendingSyncs.containsKey(zxid)){
             for(LearnerSyncRequest r: pendingSyncs.remove(zxid)) {
+                // Leader.SYNC
                 sendSync(r);
             }               
         } 
@@ -870,19 +877,22 @@ public class Leader {
             // The proposal has already been committed
             return;
         }
+        // 根据zxid找到Proposal（在ProposalRequestProcessor中已经调用propose方法放入这个map）
         Proposal p = outstandingProposals.get(zxid);
         if (p == null) {
             LOG.warn("Trying to commit future proposal: zxid 0x{} from {}",
                     Long.toHexString(zxid), followerAddr);
             return;
         }
-        
+
+        // 对于这个提案，拿自己的serverid投一票
         p.addAck(sid);        
         /*if (LOG.isDebugEnabled()) {
             LOG.debug("Count for zxid: 0x{} is {}",
                     Long.toHexString(zxid), p.ackSet.size());
         }*/
-        
+
+        // 是否过半，尝试提交
         boolean hasCommitted = tryToCommit(p, zxid, followerAddr);
 
         // If p is a reconfiguration, multiple other operations may be ready to be committed,
@@ -937,12 +947,15 @@ public class Leader {
          * @see org.apache.zookeeper.server.RequestProcessor#processRequest(org.apache.zookeeper.server.Request)
          */
         public void processRequest(Request request) throws RequestProcessorException {
+            // FinalRequestProcessor
             next.processRequest(request);
 
             // The only requests that should be on toBeApplied are write
             // requests, for which we will have a hdr. We can't simply use
             // request.zxid here because that is set on read requests to equal
             // the zxid of the last write op.
+            // hdr不为空，代表写请求
+            // 写请求处理完毕后，再从apply队列中移除（过半ack时tryToCommit放入）
             if (request.getHdr() != null) {
                 long zxid = request.getHdr().getZxid();
                 Iterator<Proposal> iter = leader.toBeApplied.iterator();
@@ -1076,14 +1089,17 @@ public class Leader {
          * election. Force a re-election instead. See ZOOKEEPER-1277
          */
         if ((request.zxid & 0xffffffffL) == 0xffffffffL) {
+            // 如果事务id在当前epoch溢出，停止leader，重新选举
             String msg =
                     "zxid lower 32 bits have rolled over, forcing re-election, and therefore new epoch start";
             shutdown(msg);
             throw new XidRolloverException(msg);
         }
 
+        // 将 事务头hdr 事务数据txn 序列化
         byte[] data = SerializeUtils.serializeRequest(request);
         proposalStats.setLastBufferSize(data.length);
+        // 封装为QuorumPacket
         QuorumPacket pp = new QuorumPacket(Leader.PROPOSAL, request.zxid, data, null);
 
         Proposal p = new Proposal();
@@ -1092,7 +1108,8 @@ public class Leader {
         
         synchronized(this) {
            p.addQuorumVerifier(self.getQuorumVerifier());
-                   
+
+           // 动态配置zk集群相关 start
            if (request.getHdr().getType() == OpCode.reconfig){
                self.setLastSeenQuorumVerifier(request.qv, true);                       
            }
@@ -1100,7 +1117,7 @@ public class Leader {
            if (self.getQuorumVerifier().getVersion()<self.getLastSeenQuorumVerifier().getVersion()) {
                p.addQuorumVerifier(self.getLastSeenQuorumVerifier());
            }
-                   
+            // 动态配置zk集群相关 end
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Proposing:: " + request);
             }

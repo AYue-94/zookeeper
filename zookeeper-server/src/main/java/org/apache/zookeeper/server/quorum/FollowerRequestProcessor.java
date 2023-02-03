@@ -18,9 +18,6 @@
 
 package org.apache.zookeeper.server.quorum;
 
-import java.io.IOException;
-import java.util.concurrent.LinkedBlockingQueue;
-
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs.OpCode;
 import org.apache.zookeeper.server.Request;
@@ -30,6 +27,9 @@ import org.apache.zookeeper.server.ZooTrace;
 import org.apache.zookeeper.txn.ErrorTxn;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * This RequestProcessor forwards any requests that modify the state of the
@@ -67,9 +67,9 @@ public class FollowerRequestProcessor extends ZooKeeperCriticalThread implements
                 if (request == Request.requestOfDeath) {
                     break;
                 }
-                // We want to queue the request to be processed before we submit
-                // the request to the leader so that we are ready to receive
-                // the response
+                // We want to queue the request to be processed
+                // before we submit the request to the leader
+                // so that we are ready to receive the response
                 nextProcessor.processRequest(request);
 
                 // We now ship the request to the leader. As with all

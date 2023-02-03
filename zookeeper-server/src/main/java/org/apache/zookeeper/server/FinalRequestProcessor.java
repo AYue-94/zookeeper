@@ -78,12 +78,15 @@ public class FinalRequestProcessor implements RequestProcessor {
             ZooTrace.logRequest(LOG, traceMask, 'E', request, "");
         }
         ProcessTxnResult rc = null;
+        // 为了保证PreRequestProcessor能正确处理ChangeRecord，这里synchronized同步
         synchronized (zks.outstandingChanges) {
             // Need to process local session requests
-            rc = zks.processTxn(request); // step1 写数据（内存） 触发watch
+            // #1 写数据（内存） 触发watch
+            rc = zks.processTxn(request);
 
             // request.hdr is set for write requests, which are the only ones
             // that add to outstandingChanges.
+            // #2 ChangeRecord处理
             if (request.getHdr() != null) {
                 TxnHeader hdr = request.getHdr();
                 Record txn = request.getTxn();
@@ -103,6 +106,7 @@ public class FinalRequestProcessor implements RequestProcessor {
 
             // do not add non quorum packets to the queue.
             if (request.isQuorum()) {
+                // #3 写内存committedLog
                 zks.getZKDatabase().addCommittedProposal(request);
             }
         }
@@ -122,6 +126,8 @@ public class FinalRequestProcessor implements RequestProcessor {
             }
         }
 
+        // 写操作，如果当前节点是follower，request对应客户端连接为空，不需要响应leader
+        // 见org.apache.zookeeper.server.quorum.FollowerZooKeeperServer.logRequest
         if (request.cnxn == null) {
             return;
         }
@@ -218,6 +224,7 @@ public class FinalRequestProcessor implements RequestProcessor {
                 break;
             }
             case OpCode.create: {
+                // #4 构造响应体
                 lastOp = "CREA";
                 rsp = new CreateResponse(rc.path);
                 err = Code.get(rc.err);
@@ -356,18 +363,21 @@ public class FinalRequestProcessor implements RequestProcessor {
                 }
                 break;
             }
-            case OpCode.getChildren: {
+            case OpCode.getChildren: { // ls /
                 lastOp = "GETC";
                 GetChildrenRequest getChildrenRequest = new GetChildrenRequest();
                 ByteBufferInputStream.byteBuffer2Record(request.request,
                         getChildrenRequest);
+                // 查当前节点
                 DataNode n = zks.getZKDatabase().getNode(getChildrenRequest.getPath());
                 if (n == null) {
                     throw new KeeperException.NoNodeException();
                 }
+                // 权限
                 PrepRequestProcessor.checkACL(zks, zks.getZKDatabase().aclForNode(n),
                         ZooDefs.Perms.READ,
                         request.authInfo);
+                // 查子节点
                 List<String> children = zks.getZKDatabase().getChildren(
                         getChildrenRequest.getPath(), null, getChildrenRequest
                                 .getWatch() ? cnxn : null);
@@ -460,6 +470,7 @@ public class FinalRequestProcessor implements RequestProcessor {
                     request.createTime, Time.currentElapsedTime());
 
         try {
+            // #5 响应客户端
             cnxn.sendResponse(hdr, rsp, "response");
             if (request.type == OpCode.closeSession) {
                 cnxn.sendCloseSession();

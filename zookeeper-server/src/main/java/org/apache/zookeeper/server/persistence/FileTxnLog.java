@@ -17,17 +17,14 @@
  */
 package org.apache.zookeeper.server.persistence;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.Closeable;
-import java.io.EOFException;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.FilterInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.RandomAccessFile;
+import org.apache.jute.*;
+import org.apache.zookeeper.server.ServerStats;
+import org.apache.zookeeper.server.util.SerializeUtils;
+import org.apache.zookeeper.txn.TxnHeader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
@@ -36,17 +33,6 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.Adler32;
 import java.util.zip.Checksum;
-
-import org.apache.jute.BinaryInputArchive;
-import org.apache.jute.BinaryOutputArchive;
-import org.apache.jute.InputArchive;
-import org.apache.jute.OutputArchive;
-import org.apache.jute.Record;
-import org.apache.zookeeper.server.ServerStats;
-import org.apache.zookeeper.server.util.SerializeUtils;
-import org.apache.zookeeper.txn.TxnHeader;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * This class implements the TxnLog interface. It provides api's
@@ -118,15 +104,18 @@ public class FileTxnLog implements TxnLog, Closeable {
     }
 
     long lastZxidSeen;
+    // 内存buffer
     volatile BufferedOutputStream logStream = null;
     volatile OutputArchive oa;
+    // 文件系统
     volatile FileOutputStream fos = null;
 
     File logDir;
     private final boolean forceSync = !System.getProperty("zookeeper.forceSync", "yes").equals("no");
     long dbId;
-    private LinkedList<FileOutputStream> streamsToFlush =
-        new LinkedList<FileOutputStream>();
+
+    // 在page cache中待刷盘的stream
+    private LinkedList<FileOutputStream> streamsToFlush = new LinkedList<FileOutputStream>();
     File logFileWrite = null;
     private FilePadding filePadding = new FilePadding();
 
@@ -213,15 +202,17 @@ public class FileTxnLog implements TxnLog, Closeable {
         } else {
             lastZxidSeen = hdr.getZxid();
         }
+        // 创建log文件
         if (logStream==null) {
            if(LOG.isInfoEnabled()){
                 LOG.info("Creating new log file: " + Util.makeLogName(hdr.getZxid()));
            }
-
+            // 文件名 log.{16进制事务id}
            logFileWrite = new File(logDir, Util.makeLogName(hdr.getZxid()));
            fos = new FileOutputStream(logFileWrite);
            logStream=new BufferedOutputStream(fos);
            oa = BinaryOutputArchive.getArchive(logStream);
+           // 魔数刷盘
            FileHeader fhdr = new FileHeader(TXNLOG_MAGIC,VERSION, dbId);
            fhdr.serialize(oa, "fileheader");
            // Make sure that the magic number is written before padding.
@@ -230,14 +221,18 @@ public class FileTxnLog implements TxnLog, Closeable {
            streamsToFlush.add(fos);
         }
         filePadding.padFile(fos.getChannel());
+        // 事务头和事务数据
         byte[] buf = Util.marshallTxnEntry(hdr, txn);
         if (buf == null || buf.length == 0) {
             throw new IOException("Faulty serialization for header " +
                     "and txn");
         }
+        // crc校验码
         Checksum crc = makeChecksumAlgorithm();
         crc.update(buf, 0, buf.length);
         oa.writeLong(crc.getValue(), "txnEntryCRC");
+
+        // 写入logStream内存buffer
         Util.writeTxnBytes(oa, buf);
 
         return true;
@@ -325,6 +320,7 @@ public class FileTxnLog implements TxnLog, Closeable {
      */
     public synchronized void commit() throws IOException {
         if (logStream != null) {
+            // 内存buffer写操作系统page cache
             logStream.flush();
         }
         for (FileOutputStream log : streamsToFlush) {
@@ -333,6 +329,7 @@ public class FileTxnLog implements TxnLog, Closeable {
                 long startSyncNS = System.nanoTime();
 
                 FileChannel channel = log.getChannel();
+                // 操作系统page cache强制刷盘
                 channel.force(false);
 
                 syncElapsedMS = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startSyncNS);

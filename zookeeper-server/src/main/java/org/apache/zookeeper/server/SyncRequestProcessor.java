@@ -48,8 +48,9 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
         RequestProcessor {
     private static final Logger LOG = LoggerFactory.getLogger(SyncRequestProcessor.class);
     private final ZooKeeperServer zks;
-    private final LinkedBlockingQueue<Request> queuedRequests =
-        new LinkedBlockingQueue<Request>();
+
+    // 未处理请求
+    private final LinkedBlockingQueue<Request> queuedRequests = new LinkedBlockingQueue<Request>();
     private final RequestProcessor nextProcessor;
 
     private Thread snapInProcess = null;
@@ -60,6 +61,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
      * disk. Basically this is the list of SyncItems whose callbacks will be
      * invoked after flush returns successfully.
      */
+    // 还未刷盘的请求
     private final LinkedList<Request> toFlush = new LinkedList<Request>();
     private final Random r = new Random();
     /**
@@ -104,16 +106,17 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
             // in the ensemble take a snapshot at the same time
             int randRoll = r.nextInt(snapCount/2);
             while (true) {
+                // request or flush
+                // level1 无flush请求，阻塞等待新request
+                // level2 有flush请求，优先处理新request
+                // level3 有flush请求，没有新request，执行一次flush
                 Request si = null;
-                // 如果没有需要flush（调用下一个processor的情况），阻塞等待新的sync请求
                 if (toFlush.isEmpty()) {
-                    si = queuedRequests.take();
+                    si = queuedRequests.take(); // level1
                 } else {
-                    // 如果有需要flush，先非阻塞调用一次获取sync请求
-                    si = queuedRequests.poll();
-                    if (si == null) {
-                        // 如果没有sync请求，执行flush，调用下一个processor
-                        flush(toFlush);
+                    si = queuedRequests.poll(); // level2
+                    if (si == null) { // level3
+                        flush(toFlush); // 刷盘并传递给下一个processor
                         continue;
                     }
                 }
@@ -122,8 +125,10 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
                 }
                 if (si != null) {
                     // track the number of records written to the log
+                    // 写事务日志buffer
                     if (zks.getZKDatabase().append(si)) {
                         logCount++;
+                        // 按照一定的几率，滚动事务日志（将buffer写page cache），生成snap文件
                         if (logCount > (snapCount / 2 + randRoll)) {
                             randRoll = r.nextInt(snapCount/2);
                             // roll the log
@@ -135,6 +140,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
                                 snapInProcess = new ZooKeeperThread("Snapshot Thread") {
                                         public void run() {
                                             try {
+                                                // 对整棵树创建快照
                                                 zks.takeSnapshot();
                                             } catch(Exception e) {
                                                 LOG.warn("Unexpected exception", e);
@@ -159,6 +165,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
                         continue;
                     }
                     toFlush.add(si);
+                    // 待flush请求超过1000个，强制执行一次flush
                     if (toFlush.size() > 1000) {
                         flush(toFlush);
                     }
@@ -178,13 +185,17 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
         if (toFlush.isEmpty())
             return;
 
+        // buffer->page cache->disk
         zks.getZKDatabase().commit();
         while (!toFlush.isEmpty()) {
             Request i = toFlush.remove();
             if (nextProcessor != null) {
+                // leader -> AckRequestProcessor
+                // follower -> SendAckRequestProcessor
                 nextProcessor.processRequest(i);
             }
         }
+        // follower -> SendAckRequestProcessor.flush
         if (nextProcessor != null && nextProcessor instanceof Flushable) {
             ((Flushable)nextProcessor).flush();
         }

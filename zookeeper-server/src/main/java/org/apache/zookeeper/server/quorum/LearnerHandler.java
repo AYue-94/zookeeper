@@ -603,6 +603,7 @@ public class LearnerHandler extends ZooKeeperThread {
                     if(type == OpCode.sync){
                         si = new LearnerSyncRequest(this, sessionId, cxid, type, bb, qp.getAuthinfo());
                     } else {
+                        // 注意这边cnxn客户端连接为空，这意味着这个请求不会从FinalRequestProcessor响应给对端
                         si = new Request(null, sessionId, cxid, type, bb, qp.getAuthinfo());
                     }
                     si.setOwner(this);
