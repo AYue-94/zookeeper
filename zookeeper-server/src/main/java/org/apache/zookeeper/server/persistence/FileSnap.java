@@ -17,6 +17,16 @@
  */
 
 package org.apache.zookeeper.server.persistence;
+
+import org.apache.jute.BinaryInputArchive;
+import org.apache.jute.BinaryOutputArchive;
+import org.apache.jute.InputArchive;
+import org.apache.jute.OutputArchive;
+import org.apache.zookeeper.server.DataTree;
+import org.apache.zookeeper.server.util.SerializeUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -32,15 +42,6 @@ import java.util.Map;
 import java.util.zip.Adler32;
 import java.util.zip.CheckedInputStream;
 import java.util.zip.CheckedOutputStream;
-
-import org.apache.jute.BinaryInputArchive;
-import org.apache.jute.BinaryOutputArchive;
-import org.apache.jute.InputArchive;
-import org.apache.jute.OutputArchive;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.apache.zookeeper.server.DataTree;
-import org.apache.zookeeper.server.util.SerializeUtils;
 
 /**
  * This class implements the snapshot interface.
@@ -72,12 +73,13 @@ public class FileSnap implements SnapShot {
         // we run through 100 snapshots (not all of them)
         // if we cannot get it running within 100 snapshots
         // we should  give up
+        // 1 事务id从大到小 列出最多100个snapshot文件
         List<File> snapList = findNValidSnapshots(100);
         if (snapList.size() == 0) {
             return -1L;
         }
-        File snap = null;
-        boolean foundValid = false;
+        File snap = null; // 实际应用的snapshot
+        boolean foundValid = false; // 是否找到合法的snapshot
         for (int i = 0, snapListSize = snapList.size(); i < snapListSize; i++) {
             snap = snapList.get(i);
             LOG.info("Reading snapshot " + snap);
@@ -87,6 +89,7 @@ public class FileSnap implements SnapShot {
                 deserialize(dt, sessions, ia);
                 long checkSum = crcIn.getChecksum().getValue();
                 long val = ia.readLong("val");
+                // 校验和没通过，尝试用一个更老的snapshot
                 if (val != checkSum) {
                     throw new IOException("CRC corruption in snapshot :  " + snap);
                 }
@@ -99,6 +102,7 @@ public class FileSnap implements SnapShot {
         if (!foundValid) {
             throw new IOException("Not able to find valid snapshots in " + snapDir);
         }
+        // DataTree中最新的事务id
         dt.lastProcessedZxid = Util.getZxidFromName(snap.getName(), SNAPSHOT_FILE_PREFIX);
         return dt.lastProcessedZxid;
     }

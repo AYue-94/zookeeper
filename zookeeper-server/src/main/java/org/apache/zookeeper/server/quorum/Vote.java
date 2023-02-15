@@ -83,14 +83,19 @@ public class Vote {
         this.version = 0x0;
     }
 
+    // 版本（为了做兼容）
     final private int version;
 
+    // 节点id
     final private long id;
-    
+
+    // 最大事务id
     final private long zxid;
-    
+
+    // 选举轮次
     final private long electionEpoch;
-    
+
+    // 任期
     final private long peerEpoch;
     
     public int getVersion() {
@@ -117,6 +122,7 @@ public class Vote {
         return state;
     }
 
+    // 节点状态
     final private ServerState state;
     
     @Override

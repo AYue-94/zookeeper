@@ -18,13 +18,6 @@
 
 package org.apache.zookeeper.server.persistence;
 
-import java.io.File;
-import java.io.FilenameFilter;
-import java.io.IOException;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 import org.apache.jute.Record;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.Code;
@@ -39,6 +32,13 @@ import org.apache.zookeeper.txn.CreateSessionTxn;
 import org.apache.zookeeper.txn.TxnHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.FilenameFilter;
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * This is a helper class
@@ -222,18 +222,23 @@ public class FileTxnSnapLog {
      */
     public long restore(DataTree dt, Map<Long, Integer> sessions,
                         PlayBackListener listener) throws IOException {
+
+        // 1 从snapshot恢复DataTree
         long deserializeResult = snapLog.deserialize(dt, sessions);
         FileTxnLog txnLog = new FileTxnLog(dataDir);
 
+        // 2 从事务日志恢复DataTree
         RestoreFinalizer finalizer = () -> {
             long highestZxid = fastForwardFromEdits(dt, sessions, listener);
             return highestZxid;
         };
 
+        // 如果snapshot不存在
         if (-1L == deserializeResult) {
             /* this means that we couldn't find any snapshot, so we need to
              * initialize an empty database (reported in ZOOKEEPER-2325) */
             if (txnLog.getLastLoggedZxid() != -1) {
+                // 如果事务日志存在，默认trustEmptySnapshot=false，抛出异常
                 // ZOOKEEPER-3056: provides an escape hatch for users upgrading
                 // from old versions of zookeeper (3.4.x, pre 3.5.3).
                 if (!trustEmptySnapshot) {
@@ -247,6 +252,7 @@ public class FileTxnSnapLog {
              *       or use Map on save() */
             save(dt, (ConcurrentHashMap<Long, Integer>)sessions);
             /* return a zxid of zero, since we the database is empty */
+            // 无数据的zk
             return 0;
         }
 
