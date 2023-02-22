@@ -435,9 +435,6 @@ public class Leader {
 
     StateSummary leaderStateSummary;
 
-    long epoch = -1;
-    boolean waitingForNewEpoch = true;
-
     // when a reconfig occurs where the leader is removed or becomes an observer, 
    // it does not commit ops after committing the reconfig
     boolean allowedToCommit = true;     
@@ -460,17 +457,26 @@ public class Leader {
 
         try {
             self.tick.set(0);
+
+            // *** phase1 等待最新epoch
+
+            // LeaderZooKeeperServer加载数据到内存
             zk.loadData();
 
+            // 还未提出新epoch前，自己的epoch和zxid
             leaderStateSummary = new StateSummary(self.getCurrentEpoch(), zk.getLastProcessedZxid());
 
             // Start thread that waits for connection requests from
             // new followers.
+
+            // 开启quorum端口，接收follower连接，针对每个follower创建一个LearnerHandler线程负责处理请求
             cnxAcceptor = new LearnerCnxAcceptor();
             cnxAcceptor.start();
 
+            // 等待leader的最新的epoch
             long epoch = getEpochToPropose(self.getId(), self.getAcceptedEpoch());
 
+            // 用最新epoch，初始化zxid = epoch << 32 | 0
             zk.setZxid(ZxidUtils.makeZxid(epoch, 0));
 
             synchronized(this){
@@ -525,11 +531,13 @@ public class Leader {
             // We have to get at least a majority of servers in sync with
             // us. We do this by waiting for the NEWLEADER packet to get
             // acknowledged
-                       
+            // Step2 等待EPOCHACK过半，对最新的epoch达成一致
              waitForEpochAck(self.getId(), leaderStateSummary);
-             self.setCurrentEpoch(epoch);    
+            // 正式更新currentEpoch=刚才getEpochToPropose提出的新epoch
+             self.setCurrentEpoch(epoch);
             
              try {
+                 // Step3 等待Leader.ACK
                  waitForNewLeaderAck(self.getId(), zk.getZxid());
              } catch (InterruptedException e) {
                  shutdown("Waiting for a quorum of followers, only synced with sids: [ "
@@ -540,14 +548,14 @@ public class Leader {
                      if (self.getQuorumVerifier().getVotingMembers().containsKey(f.getSid())){
                          followerSet.add(f.getSid());
                      }
-                 }    
+                 }
                  boolean initTicksShouldBeIncreased = true;
                  for (Proposal.QuorumVerifierAcksetPair qvAckset:newLeaderProposal.qvAcksetPairs) {
                      if (!qvAckset.getQuorumVerifier().containsQuorum(followerSet)) {
                          initTicksShouldBeIncreased = false;
                          break;
                      }
-                 }                  
+                 }
                  if (initTicksShouldBeIncreased) {
                      LOG.warn("Enough followers present. "+
                              "Perhaps the initTicks need to be increased.");
@@ -555,6 +563,7 @@ public class Leader {
                  return;
              }
 
+             // step4 开启底层LeaderZooKeeperServer，开始接收客户端请求
              startZkServer();
              
             /**
@@ -622,6 +631,7 @@ public class Leader {
 
                     syncedAckSet.addAck(self.getId());
 
+                    // 校验过半follower的任然活着tickOfNextAckDeadline
                     for (LearnerHandler f : getLearners()) {
                         if (f.synced()) {
                             syncedAckSet.addAck(f.getSid());
@@ -1204,6 +1214,9 @@ public class Leader {
 
         return lastProposed;
     }
+
+    long epoch = -1;
+    boolean waitingForNewEpoch = true;
     // VisibleForTesting
     protected final Set<Long> connectingFollowers = new HashSet<Long>();
     public long getEpochToPropose(long sid, long lastAcceptedEpoch) throws InterruptedException, IOException {
@@ -1211,27 +1224,31 @@ public class Leader {
             if (!waitingForNewEpoch) {
                 return epoch;
             }
-            if (lastAcceptedEpoch >= epoch) {
+            if (lastAcceptedEpoch >= epoch) { // epoch++
                 epoch = lastAcceptedEpoch+1;
             }
-            if (isParticipant(sid)) {
+            if (isParticipant(sid)) { // 参与投票
                 connectingFollowers.add(sid);
             }
             QuorumVerifier verifier = self.getQuorumVerifier();
             if (connectingFollowers.contains(self.getId()) &&
                                             verifier.containsQuorum(connectingFollowers)) {
+                // case1 已经有过半server与当前leader建立连接
                 waitingForNewEpoch = false;
                 self.setAcceptedEpoch(epoch);
                 connectingFollowers.notifyAll();
             } else {
+                // case2 还没有过半server与当前leader建立连接，wait直至waitingForNewEpoch=false（case1）
                 long start = Time.currentElapsedTime();
                 long cur = start;
                 long end = start + self.getInitLimit()*self.getTickTime();
                 while(waitingForNewEpoch && cur < end) {
+                    // wait一会，然后再来检查waitingForNewEpoch
                     connectingFollowers.wait(end - cur);
                     cur = Time.currentElapsedTime();
                 }
                 if (waitingForNewEpoch) {
+                    // 超时没有过半server建立连接，结束leading状态
                     throw new InterruptedException("Timeout while waiting for epoch from quorum");
                 }
             }
@@ -1248,7 +1265,8 @@ public class Leader {
             if (electionFinished) {
                 return;
             }
-            if (ss.getCurrentEpoch() != -1) {
+            if (ss.getCurrentEpoch() != -1) { // 非重复票
+                // 存在follower超过leader
                 if (ss.isMoreRecentThan(leaderStateSummary)) {
                     throw new IOException("Follower is ahead of the leader, leader summary: " 
                                                     + leaderStateSummary.getCurrentEpoch()

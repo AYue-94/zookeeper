@@ -1276,6 +1276,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                     } catch (Exception e) {
                        LOG.warn("Unexpected exception",e);
                     } finally {
+                        // follower.followLeader结束，follower关闭，状态变更LOOKING
                        follower.shutdown();
                        setFollower(null);
                        updateServerState();
@@ -1291,6 +1292,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                     } catch (Exception e) {
                         LOG.warn("Unexpected exception",e);
                     } finally {
+                        // leader.lead结束，leader关闭，状态变更LOOKING
                         if (leader != null) {
                             leader.shutdown("Forcing shutdown");
                             setLeader(null);

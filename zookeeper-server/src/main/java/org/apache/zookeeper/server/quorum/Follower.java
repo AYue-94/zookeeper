@@ -71,9 +71,12 @@ public class Follower extends Learner{
         self.end_fle = 0;
         fzk.registerJMX(new FollowerBean(this, zk), self.jmxLocalPeerBean);
         try {
+            // 从QuorumServer中找到CurrentVote对应节点，即为leader
             QuorumServer leaderServer = findLeader();            
             try {
+                // 连接（有重试，如果超出限制抛出异常，重新进入LOOKING）
                 connectToLeader(leaderServer.addr, leaderServer.hostname);
+                // 与leader的epoch达成一致
                 long newEpochZxid = registerWithLeader(Leader.FOLLOWERINFO);
                 if (self.isReconfigStateChange())
                    throw new Exception("learned about role change");
@@ -85,6 +88,7 @@ public class Follower extends Learner{
                             + " is less than our accepted epoch " + ZxidUtils.zxidToString(self.getAcceptedEpoch()));
                     throw new IOException("Error: Epoch of leader is lower");
                 }
+                // 与leader同步
                 syncWithLeader(newEpochZxid);                
                 QuorumPacket qp = new QuorumPacket();
                 while (this.isRunning()) {
@@ -128,11 +132,11 @@ public class Follower extends Learner{
                         + Long.toHexString(lastQueued + 1));
             }
             lastQueued = hdr.getZxid();
-            
+
             if (hdr.getType() == OpCode.reconfig){
-               SetDataTxn setDataTxn = (SetDataTxn) txn;       
+               SetDataTxn setDataTxn = (SetDataTxn) txn;
                QuorumVerifier qv = self.configFromString(new String(setDataTxn.getData()));
-               self.setLastSeenQuorumVerifier(qv, true);                               
+               self.setLastSeenQuorumVerifier(qv, true);
             }
             // FollowerZooKeeperServer.logRequest
             fzk.logRequest(hdr, txn);

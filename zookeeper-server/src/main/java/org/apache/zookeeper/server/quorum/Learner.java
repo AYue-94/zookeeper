@@ -321,7 +321,7 @@ public class Learner {
          */
     	long lastLoggedZxid = self.getLastLoggedZxid();
         QuorumPacket qp = new QuorumPacket();                
-        qp.setType(pktType);
+        qp.setType(pktType); // FOLLOWERINFO
         qp.setZxid(ZxidUtils.makeZxid(self.getAcceptedEpoch(), 0));
         
         /*
@@ -332,8 +332,9 @@ public class Learner {
         BinaryOutputArchive boa = BinaryOutputArchive.getArchive(bsid);
         boa.writeRecord(li, "LearnerInfo");
         qp.setData(bsid.toByteArray());
-        
+        // follower向leader发送FOLLOWERINFO数据包
         writePacket(qp, true);
+        // 等待leader响应
         readPacket(qp);        
         final long newEpoch = ZxidUtils.getEpochFromZxid(qp.getZxid());
 		if (qp.getType() == Leader.LEADERINFO) {
@@ -458,13 +459,13 @@ public class Learner {
                             + Long.toHexString(lastQueued + 1));
                     }
                     lastQueued = pif.hdr.getZxid();
-                    
-                    if (pif.hdr.getType() == OpCode.reconfig){                
-                        SetDataTxn setDataTxn = (SetDataTxn) pif.rec;       
+
+                    if (pif.hdr.getType() == OpCode.reconfig){
+                        SetDataTxn setDataTxn = (SetDataTxn) pif.rec;
                        QuorumVerifier qv = self.configFromString(new String(setDataTxn.getData()));
-                       self.setLastSeenQuorumVerifier(qv, true);                               
+                       self.setLastSeenQuorumVerifier(qv, true);
                     }
-                    
+
                     packetsNotCommitted.add(pif);
                     break;
                 case Leader.COMMIT:
@@ -482,7 +483,7 @@ public class Learner {
                         if (pif.hdr.getZxid() != qp.getZxid()) {
                             LOG.warn("Committing " + qp.getZxid() + ", but next proposal is " + pif.hdr.getZxid());
                         } else {
-                            zk.processTxn(pif.hdr, pif.rec);
+                            zk.processTxn(pif.hdr, pif.rec); // 执行事务
                             packetsNotCommitted.remove();
                         }
                     } else {
@@ -527,7 +528,7 @@ public class Learner {
 
                     break;                
                 case Leader.UPTODATE:
-                    LOG.info("Learner received UPTODATE message");                                      
+                    LOG.info("Learner received UPTODATE message");
                     if (newLeaderQV!=null) {
                        boolean majorChange =
                            self.processReconfig(newLeaderQV, null, null, true);
