@@ -29,6 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
 
@@ -109,6 +110,23 @@ public class FileTxnLogTest  extends ZKTestCase {
     long customPreallocSize = 10101;
     FileTxnLog.setPreallocSize(customPreallocSize);
     Assert.assertThat(FilePadding.getPreAllocSize(), is(equalTo(customPreallocSize)));
+  }
+
+  @Test
+  public void testFileOutputStream() throws IOException {
+    File f = new File("/tmp/a.txt");
+    f.createNewFile();
+    try (FileOutputStream fos = new FileOutputStream(f)) {
+      fos.write(new byte[]{1});
+      fos.write(new byte[]{1});
+      fos.write(new byte[]{1});
+      fos.write(new byte[]{1});
+      fos.write(new byte[]{1});
+      fos.write(new byte[]{1});
+      fos.write(new byte[]{1});
+      fos.getFD().sync();
+      fos.getChannel().force(true);
+    }
   }
 
   public void testSyncThresholdExceedCount() throws IOException {

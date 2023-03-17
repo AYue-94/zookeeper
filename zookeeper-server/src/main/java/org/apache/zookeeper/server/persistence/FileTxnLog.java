@@ -17,14 +17,28 @@
  */
 package org.apache.zookeeper.server.persistence;
 
-import org.apache.jute.*;
+import org.apache.jute.BinaryInputArchive;
+import org.apache.jute.BinaryOutputArchive;
+import org.apache.jute.InputArchive;
+import org.apache.jute.OutputArchive;
+import org.apache.jute.Record;
 import org.apache.zookeeper.server.ServerStats;
 import org.apache.zookeeper.server.util.SerializeUtils;
 import org.apache.zookeeper.txn.TxnHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.Closeable;
+import java.io.EOFException;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.FilterInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
@@ -104,18 +118,19 @@ public class FileTxnLog implements TxnLog, Closeable {
     }
 
     long lastZxidSeen;
-    // 内存buffer
-    volatile BufferedOutputStream logStream = null;
-    volatile OutputArchive oa;
-    // 文件系统
+    // 文件系统（pageCache）
     volatile FileOutputStream fos = null;
+    // 内存buffer 包了fos
+    volatile BufferedOutputStream logStream = null;
+    // zk自己的序列化封装 包了logStream
+    volatile OutputArchive oa;
+    // fos集合 待刷盘
+    private LinkedList<FileOutputStream> streamsToFlush = new LinkedList<FileOutputStream>();
 
     File logDir;
     private final boolean forceSync = !System.getProperty("zookeeper.forceSync", "yes").equals("no");
     long dbId;
 
-    // 在page cache中待刷盘的stream
-    private LinkedList<FileOutputStream> streamsToFlush = new LinkedList<FileOutputStream>();
     File logFileWrite = null;
     private FilePadding filePadding = new FilePadding();
 
